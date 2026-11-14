@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import RetrievalLab from './RetrievalLab.jsx';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const AUTH_BASE_URL = import.meta.env.VITE_AUTH_BASE_URL || API_BASE_URL;
@@ -8,9 +9,9 @@ let accessToken = null;
 let refreshPromise = null;
 const REQUEST_TIMEOUT_MS = 10000;
 
-async function fetchWithTimeout(url, options = {}) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
@@ -146,16 +147,17 @@ function App() {
   const [busy, setBusy] = useState(false);
 
   async function request(path, options = {}, allowRefresh = true) {
-    const hasJsonBody = options.body !== undefined && options.body !== null;
+    const { timeoutMs = REQUEST_TIMEOUT_MS, ...fetchOptions } = options;
+    const hasJsonBody = fetchOptions.body !== undefined && fetchOptions.body !== null;
     const response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
-      ...options,
+      ...fetchOptions,
       credentials: 'include',
       headers: {
         ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}),
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-        ...options.headers,
+        ...fetchOptions.headers,
       },
-    });
+    }, timeoutMs);
     if (response.status === 401 && allowRefresh) {
       try {
         await refreshAccessToken();
@@ -1189,11 +1191,13 @@ function App() {
     { name: 'My Issues', icon: 'issues' },
     { name: 'Views', icon: 'views' },
     { name: 'Inbox', icon: 'inbox' },
+    { name: 'Retrieval Lab', icon: 'retrieval' },
     { name: 'Settings', icon: 'settings' },
   ];
   const workspaceSections = new Set(workspaceNavItems.map((item) => item.name));
 
   function planningContent() {
+    if (section === 'Retrieval Lab') return <RetrievalLab request={request} workspaceId={workspaceId} teams={teams} onStatus={setStatus} />;
     if (section === 'Overview') return (
       <section className="overview">
         <div className="hero-card"><div><span className="team-icon large">{selectedTeam.issue_prefix.slice(0, 1)}</span><h2>{selectedTeam.name}</h2><p>{selectedTeam.description || 'A focused space for this team’s projects, cycles, and issues.'}</p></div><span className="prefix-chip">{selectedTeam.issue_prefix}</span></div>
@@ -1760,6 +1764,7 @@ function Icon({ name }) {
     members: <><circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" /><path d="M3 20c0-4 2.5-6 6-6s6 2 6 6M14 15c3.5 0 6 1.5 6 5" /></>,
     views: <><path d="M4 5h16v14H4z" /><path d="M9 5v14M9 10h11" /></>,
     inbox: <><path d="M4 5h16v14H4z" /><path d="m4 14 4-4h8l4 4M9 14h6" /></>,
+    retrieval: <><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4M8 11h6M11 8v6" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></>,
     logout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9" /></>,
   };
