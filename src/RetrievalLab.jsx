@@ -37,6 +37,27 @@ function ResultCard({ row, channel, rank }) {
   </article>;
 }
 
+function GroundedAnswer({ response }) {
+  const [showSources, setShowSources] = useState(false);
+  const citationById = new Map(response.citations.map((item) => [item.id, item]));
+  const evidenceOnly = response.generation.status === 'evidence_only';
+  return <article className="grounded-answer-card">
+    <header>
+      <div><span className="eyebrow">{evidenceOnly ? 'EVIDENCE PREVIEW' : 'GROUNDED ANSWER'}</span><h3>{evidenceOnly ? 'Retrieved evidence only' : response.generation.insufficient_evidence ? 'Not enough evidence' : 'Answer from your workspace'}</h3></div>
+      <div className="generation-badge"><span>{response.generation.provider}</span><strong>{response.generation.timings_ms.total} ms</strong></div>
+    </header>
+    {evidenceOnly
+      ? <p className="grounded-empty">Answer generation is not configured. Review the retrieved evidence below; it has not been presented as an answer.</p>
+      : response.generation.insufficient_evidence
+        ? <p className="grounded-empty">No authorized evidence was sufficient to produce an answer.</p>
+      : <div className="grounded-claims">{response.claims.map((claim, index) => <p key={`${index}-${claim.text}`}><span>{claim.text}</span>{claim.citation_ids.map((id) => <button type="button" key={id} title={citationById.get(id)?.target || id} onClick={() => setShowSources(true)}>[{id}]</button>)}</p>)}</div>}
+    {!!response.citations.length && <div className="grounded-sources">
+      <button type="button" onClick={() => setShowSources(!showSources)} aria-expanded={showSources}><span>{evidenceOnly ? 'Retrieved sources' : 'Sources used'}</span><b>{response.citations.length}</b><small>{showSources ? 'Hide evidence' : 'Inspect citations'}</small></button>
+      {showSources && <div>{response.citations.map((citation) => <article key={citation.id}><header><b>{citation.id}</b><strong>{citation.target}</strong><span>{citation.source_type}</span></header><p>{citation.excerpt}</p></article>)}</div>}
+    </div>}
+  </article>;
+}
+
 export default function RetrievalLab({ request, workspaceId, teams, onStatus }) {
   const [query, setQuery] = useState('');
   const [selectedTeams, setSelectedTeams] = useState([]);
@@ -44,7 +65,8 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
   const [includeParent, setIncludeParent] = useState(true);
   const [channel, setChannel] = useState('fused');
   const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [answer, setAnswer] = useState(null);
+  const [loadingAction, setLoadingAction] = useState('');
 
   const rows = useMemo(() => {
     if (!result) return [];
@@ -59,13 +81,14 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
       : [...current, teamId]);
   }
 
-  async function search(event) {
+  async function run(event, mode = 'answer') {
     event?.preventDefault();
     if (!query.trim()) return;
-    setLoading(true);
+    setLoadingAction(mode);
     onStatus('');
     try {
-      const payload = await request(`/api/v1/workspaces/${workspaceId}/retrieval/hybrid-search`, {
+      const endpoint = mode === 'answer' ? 'answer' : 'hybrid-search';
+      const payload = await request(`/api/v1/workspaces/${workspaceId}/retrieval/${endpoint}`, {
         method: 'POST',
         timeoutMs: 120000,
         body: JSON.stringify({
@@ -75,26 +98,28 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
           candidate_limit: 40,
           neighbor_window: neighborWindow,
           include_parent: includeParent,
+          ...(mode === 'answer' ? { max_citations: 6 } : {}),
         }),
       });
-      setResult(payload);
+      setResult(mode === 'answer' ? payload.retrieval : payload);
+      setAnswer(mode === 'answer' ? payload : null);
       setChannel('fused');
     } catch (error) {
       onStatus(error.message);
     } finally {
-      setLoading(false);
+      setLoadingAction('');
     }
   }
 
   const timing = result?.pipeline?.timings_ms || {};
   return <section className="retrieval-lab">
     <div className="retrieval-hero">
-      <div><span className="eyebrow">KNOWLEDGE · R2</span><h2>Retrieval Lab</h2><p>Inspect how CommonPlan finds evidence before an AI answer is generated.</p></div>
-      <div className="retrieval-stage"><span>01 Retrieve</span><i /><span>02 Fuse</span><i /><span>03 Expand</span><i /><span>04 Rerank</span></div>
+      <div><span className="eyebrow">KNOWLEDGE · R3</span><h2>Retrieval Lab</h2><p>Ask a question, inspect the evidence, and verify every grounded claim.</p></div>
+      <div className="retrieval-stage"><span>01 Retrieve</span><i /><span>02 Fuse</span><i /><span>03 Expand</span><i /><span>04 Rerank</span><i /><span>05 Cite</span></div>
     </div>
 
-    <form className="retrieval-query" onSubmit={search}>
-      <div className="retrieval-query-box"><span aria-hidden="true">⌕</span><textarea value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ask about issues, projects, comments, or uploaded documents…" rows="2" /><button className="primary" disabled={loading || !query.trim()}>{loading ? 'Searching…' : 'Run retrieval'}</button></div>
+    <form className="retrieval-query" onSubmit={(event) => run(event, 'answer')}>
+      <div className="retrieval-query-box"><span aria-hidden="true">⌕</span><textarea value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ask about issues, projects, comments, or uploaded documents…" rows="2" /><div className="retrieval-actions"><button type="button" className="secondary" disabled={!!loadingAction || !query.trim()} onClick={(event) => run(event, 'retrieve')}>{loadingAction === 'retrieve' ? 'Retrieving…' : 'Inspect retrieval'}</button><button className="primary" disabled={!!loadingAction || !query.trim()}>{loadingAction === 'answer' ? 'Answering…' : 'Ask with citations'}</button></div></div>
       <div className="retrieval-examples"><span>Try</span>{EXAMPLES.map((example) => <button type="button" key={example} onClick={() => setQuery(example)}>{example}</button>)}</div>
     </form>
 
@@ -104,7 +129,8 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
       <label className="retrieval-parent-toggle"><input type="checkbox" checked={includeParent} onChange={(event) => setIncludeParent(event.target.checked)} /><span><strong>Parent page</strong><small>Include the full source page</small></span></label>
     </div>
 
-    {!result ? <div className="retrieval-welcome"><div className="retrieval-orbit"><span>R</span></div><h3>See retrieval before generation</h3><p>Run a query to compare semantic and keyword candidates, then inspect exactly why the fused ranking changed.</p></div> : <>
+    {!result ? <div className="retrieval-welcome"><div className="retrieval-orbit"><span>R</span></div><h3>Ask with verifiable evidence</h3><p>Generate a citation-bound answer or inspect semantic, keyword, fusion, and context stages independently.</p></div> : <>
+      {answer && <GroundedAnswer response={answer} />}
       <div className="retrieval-run-summary">
         <div><span>Total</span><strong>{timing.total ?? 0}<small>ms</small></strong></div>
         <div><span>Embedding</span><strong>{timing.embedding ?? 0}<small>ms</small></strong></div>
