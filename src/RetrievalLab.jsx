@@ -51,11 +51,30 @@ function GroundedAnswer({ response }) {
       : response.generation.insufficient_evidence
         ? <p className="grounded-empty">No authorized evidence was sufficient to produce an answer.</p>
       : <div className="grounded-claims">{response.claims.map((claim, index) => <p key={`${index}-${claim.text}`}><span>{claim.text}</span>{claim.citation_ids.map((id) => <button type="button" key={id} title={citationById.get(id)?.target || id} onClick={() => setShowSources(true)}>[{id}]</button>)}</p>)}</div>}
+    {response.agent && <AgentRun agent={response.agent} originalQuery={response.query} />}
     {!!response.citations.length && <div className="grounded-sources">
       <button type="button" onClick={() => setShowSources(!showSources)} aria-expanded={showSources}><span>{evidenceOnly ? 'Retrieved sources' : 'Sources used'}</span><b>{response.citations.length}</b><small>{showSources ? 'Hide evidence' : 'Inspect citations'}</small></button>
       {showSources && <div>{response.citations.map((citation) => <article key={citation.id}><header><b>{citation.id}</b><strong>{citation.target}</strong><span>{citation.source_type}</span></header><p>{citation.excerpt}</p></article>)}</div>}
     </div>}
   </article>;
+}
+
+function AgentRun({ agent, originalQuery }) {
+  const [expanded, setExpanded] = useState(false);
+  const rewritten = agent.final_query && agent.final_query !== originalQuery;
+  return <div className="agent-run">
+    <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+      <span><i />Agent run</span>
+      <div><b>{agent.model_calls} model calls</b><b>{agent.usage.total_tokens} tokens</b>{agent.rewrites > 0 && <b>{agent.rewrites} rewrite</b>}{agent.answer_retries > 0 && <b>{agent.answer_retries} retry</b>}</div>
+      <small>{expanded ? 'Hide trace' : 'Inspect trace'}</small>
+    </button>
+    {expanded && <div className="agent-run-detail">
+      {rewritten && <p><span>Final retrieval query</span><strong>{agent.final_query}</strong></p>}
+      <ol>{agent.steps.map((step, index) => <li key={`${index}-${step.node}`}>
+        <i>{index + 1}</i><div><strong>{step.node.replaceAll('_', ' ')}</strong><span>{step.decision}</span>{step.detail && <small>{step.detail}</small>}</div>
+      </li>)}</ol>
+    </div>}
+  </div>;
 }
 
 export default function RetrievalLab({ request, workspaceId, teams, onStatus }) {
@@ -114,8 +133,8 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
   const timing = result?.pipeline?.timings_ms || {};
   return <section className="retrieval-lab">
     <div className="retrieval-hero">
-      <div><span className="eyebrow">KNOWLEDGE · R3</span><h2>Retrieval Lab</h2><p>Ask a question, inspect the evidence, and verify every grounded claim.</p></div>
-      <div className="retrieval-stage"><span>01 Retrieve</span><i /><span>02 Fuse</span><i /><span>03 Expand</span><i /><span>04 Rerank</span><i /><span>05 Cite</span></div>
+      <div><span className="eyebrow">KNOWLEDGE · R4</span><h2>Retrieval Lab</h2><p>Ask a question, inspect the evidence, and verify every grounded claim.</p></div>
+      <div className="retrieval-stage"><span>01 Retrieve</span><i /><span>02 Grade</span><i /><span>03 Rewrite</span><i /><span>04 Generate</span><i /><span>05 Verify</span></div>
     </div>
 
     <form className="retrieval-query" onSubmit={(event) => run(event, 'answer')}>

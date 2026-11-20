@@ -171,6 +171,24 @@
 .grounded-claims p { margin: 0; color: #484a55; font-size: 12px; line-height: 1.68; }
 .grounded-claims button { margin-left: 5px; padding: 1px 4px; border: 0; border-radius: 4px; color: #4f4bc4; background: #ededff; font-size: 8px; font-weight: 780; vertical-align: 1px; }
 .grounded-empty { margin: 2px 21px 20px; color: #737582; font-size: 11px; }
+.agent-run { border-top: 1px solid #e9e9f1; background: #fdfdff; }
+.agent-run > button { width: 100%; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; padding: 10px 21px; border: 0; color: #70727e; background: transparent; text-align: left; }
+.agent-run > button > span { display: flex; align-items: center; gap: 7px; color: #5652c4; font-size: 9px; font-weight: 760; }
+.agent-run > button > span i { width: 7px; height: 7px; border-radius: 50%; background: #6a67da; box-shadow: 0 0 0 4px #eeeeff; }
+.agent-run > button > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.agent-run > button b { padding: 3px 6px; border-radius: 999px; color: #747681; background: #f0f0f5; font-size: 7px; font-weight: 700; }
+.agent-run > button small { color: #9698a3; font-size: 8px; }
+.agent-run-detail { display: grid; gap: 10px; padding: 0 21px 15px; }
+.agent-run-detail > p { display: grid; gap: 3px; margin: 0; padding: 8px 10px; border: 1px solid #e6e5f2; border-radius: 8px; background: white; }
+.agent-run-detail > p span { color: #9798a3; font-size: 7px; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
+.agent-run-detail > p strong { color: #51525e; font-size: 9px; font-weight: 600; }
+.agent-run-detail ol { display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); gap: 7px; margin: 0; padding: 0; list-style: none; }
+.agent-run-detail li { min-width: 0; display: flex; gap: 8px; padding: 9px; border: 1px solid #e8e8ef; border-radius: 9px; background: white; }
+.agent-run-detail li > i { flex: 0 0 auto; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 6px; color: #5753bf; background: #eeeeff; font-size: 7px; font-style: normal; font-weight: 780; }
+.agent-run-detail li > div { min-width: 0; display: grid; align-content: start; gap: 2px; }
+.agent-run-detail li strong { overflow: hidden; color: #4a4b56; font-size: 8px; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
+.agent-run-detail li span { color: #777986; font-size: 7px; }
+.agent-run-detail li small { color: #9a9ca7; font-size: 7px; line-height: 1.35; }
 .grounded-sources { border-top: 1px solid #e9e9f1; background: #f8f8fc; }
 .grounded-sources > button { width: 100%; display: flex; align-items: center; gap: 7px; padding: 9px 21px; border: 0; color: #70727e; background: transparent; font-size: 9px; text-align: left; }
 .grounded-sources > button b { display: grid; place-items: center; min-width: 17px; height: 17px; border-radius: 999px; color: #5652c4; background: #e9e9ff; font-size: 8px; }
