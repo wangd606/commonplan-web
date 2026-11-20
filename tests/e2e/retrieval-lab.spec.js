@@ -11,7 +11,7 @@ const retrieval = {
 };
 
 
-test('Retrieval Lab renders a citation-bound answer and inspectable R2 evidence', async ({ page }) => {
+test('Retrieval Lab labels no-model output as evidence instead of an answer', async ({ page }) => {
   await page.route('**/auth/refresh', (route) => route.fulfill({ json: { access_token: 'test-access-token' } }));
   await page.route('**/auth/google/status', (route) => route.fulfill({ json: { configured: false } }));
   await page.route('**/users/me', (route) => route.fulfill({ json: { id: 1, name: 'Retrieval Tester', email: 'tester@example.com' } }));
@@ -21,10 +21,10 @@ test('Retrieval Lab renders a citation-bound answer and inspectable R2 evidence'
     if (path === '/api/v1/workspaces/workspace-1/teams') return route.fulfill({ json: [{ id: 'team-1', name: 'Core', issue_prefix: 'CORE', my_role: 'lead' }] });
     if (path.endsWith('/retrieval/answer')) return route.fulfill({ json: {
       query: 'Why did Google login fail?',
-      answer: 'The callback used a redirect URI that did not match Google configuration. [S1]',
-      claims: [{ text: 'The callback used a redirect URI that did not match Google configuration.', citation_ids: ['S1'] }],
+      answer: null,
+      claims: [],
       citations: [{ id: 'S1', target: 'issue:issue-1', source_id: 'issue-1', source_type: 'issue', excerpt: 'Google login callback failed because the redirect URI did not match.', heading_path: null, page_from: null, page_to: null }],
-      generation: { provider: 'extractive', model: 'deterministic-extractive-v1', grounded: true, insufficient_evidence: false, timings_ms: { retrieval: 42.5, generation: 0.2, total: 42.7 } },
+      generation: { provider: 'extractive', model: 'deterministic-extractive-v1', status: 'evidence_only', grounding_status: 'not_generated', grounded: false, insufficient_evidence: false, timings_ms: { retrieval: 42.5, generation: 0.2, total: 42.7 } },
       retrieval,
     } });
     if (path.endsWith('/retrieval/hybrid-search')) return route.fulfill({ json: retrieval });
@@ -39,9 +39,10 @@ test('Retrieval Lab renders a citation-bound answer and inspectable R2 evidence'
   await page.getByPlaceholder(/Ask about issues/).fill('Why did Google login fail?');
   await page.getByRole('button', { name: 'Ask with citations' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Answer from your workspace' })).toBeVisible();
-  await expect(page.getByText('The callback used a redirect URI')).toBeVisible();
-  await page.getByRole('button', { name: '[S1]' }).click();
+  await expect(page.getByRole('heading', { name: 'Retrieved evidence only' })).toBeVisible();
+  await expect(page.getByText('Answer generation is not configured.')).toBeVisible();
+  await expect(page.getByText('The callback used a redirect URI')).toHaveCount(0);
+  await page.getByRole('button', { name: /Retrieved sources/ }).click();
   await expect(page.getByText('Google login callback failed because')).toBeVisible();
   await expect(page.getByRole('tab', { name: /Fused \+ reranked/ })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.retrieval-evidence-row')).toContainText('Vector #1');

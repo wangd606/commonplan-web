@@ -40,16 +40,19 @@ function ResultCard({ row, channel, rank }) {
 function GroundedAnswer({ response }) {
   const [showSources, setShowSources] = useState(false);
   const citationById = new Map(response.citations.map((item) => [item.id, item]));
+  const evidenceOnly = response.generation.status === 'evidence_only';
   return <article className="grounded-answer-card">
     <header>
-      <div><span className="eyebrow">GROUNDED ANSWER</span><h3>{response.generation.insufficient_evidence ? 'Not enough evidence' : 'Answer from your workspace'}</h3></div>
+      <div><span className="eyebrow">{evidenceOnly ? 'EVIDENCE PREVIEW' : 'GROUNDED ANSWER'}</span><h3>{evidenceOnly ? 'Retrieved evidence only' : response.generation.insufficient_evidence ? 'Not enough evidence' : 'Answer from your workspace'}</h3></div>
       <div className="generation-badge"><span>{response.generation.provider}</span><strong>{response.generation.timings_ms.total} ms</strong></div>
     </header>
-    {response.generation.insufficient_evidence
-      ? <p className="grounded-empty">{response.answer}</p>
+    {evidenceOnly
+      ? <p className="grounded-empty">Answer generation is not configured. Review the retrieved evidence below; it has not been presented as an answer.</p>
+      : response.generation.insufficient_evidence
+        ? <p className="grounded-empty">No authorized evidence was sufficient to produce an answer.</p>
       : <div className="grounded-claims">{response.claims.map((claim, index) => <p key={`${index}-${claim.text}`}><span>{claim.text}</span>{claim.citation_ids.map((id) => <button type="button" key={id} title={citationById.get(id)?.target || id} onClick={() => setShowSources(true)}>[{id}]</button>)}</p>)}</div>}
     {!!response.citations.length && <div className="grounded-sources">
-      <button type="button" onClick={() => setShowSources(!showSources)} aria-expanded={showSources}><span>Sources used</span><b>{response.citations.length}</b><small>{showSources ? 'Hide evidence' : 'Inspect citations'}</small></button>
+      <button type="button" onClick={() => setShowSources(!showSources)} aria-expanded={showSources}><span>{evidenceOnly ? 'Retrieved sources' : 'Sources used'}</span><b>{response.citations.length}</b><small>{showSources ? 'Hide evidence' : 'Inspect citations'}</small></button>
       {showSources && <div>{response.citations.map((citation) => <article key={citation.id}><header><b>{citation.id}</b><strong>{citation.target}</strong><span>{citation.source_type}</span></header><p>{citation.excerpt}</p></article>)}</div>}
     </div>}
   </article>;
