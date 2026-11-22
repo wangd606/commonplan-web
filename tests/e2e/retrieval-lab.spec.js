@@ -49,3 +49,74 @@ test('Retrieval Lab labels no-model output as evidence instead of an answer', as
   await page.getByRole('button', { name: /Context expansion/ }).click();
   await expect(page.getByText('The redirect URI did not match the Google configuration.', { exact: true })).toBeVisible();
 });
+
+
+test('Retrieval Lab exposes the bounded R4 agent trace', async ({ page }) => {
+  await page.route('**/auth/refresh', (route) => route.fulfill({ json: { access_token: 'test-access-token' } }));
+  await page.route('**/auth/google/status', (route) => route.fulfill({ json: { configured: false } }));
+  await page.route('**/users/me', (route) => route.fulfill({ json: { id: 1, name: 'Retrieval Tester', email: 'tester@example.com' } }));
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/workspaces') return route.fulfill({ json: [{ id: 'workspace-1', name: 'Demo', my_role: 'owner' }] });
+    if (path === '/api/v1/workspaces/workspace-1/teams') return route.fulfill({ json: [{ id: 'team-1', name: 'Core', issue_prefix: 'CORE', my_role: 'lead' }] });
+    if (path.endsWith('/retrieval/answer')) return route.fulfill({ json: {
+      query: 'Why did Google login fail?',
+      answer: 'The redirect URI did not match. [S1]',
+      claims: [{ text: 'The redirect URI did not match.', citation_ids: ['S1'] }],
+      citations: [{ id: 'S1', target: 'issue:issue-1', source_id: 'issue-1', source_type: 'issue', excerpt: 'Google login callback failed because the redirect URI did not match.', heading_path: null, page_from: null, page_to: null }],
+      generation: { provider: 'model_gateway', model: 'commonplan-generation-v1', status: 'answered', grounding_status: 'agent_validated', grounded: true, insufficient_evidence: false, timings_ms: { retrieval: 70, generation: 310, total: 380 } },
+      retrieval,
+      agent: {
+        strategy: 'bounded-langgraph-v1', final_query: 'Google OAuth redirect URI mismatch', rewrites: 1, answer_retries: 0, model_calls: 4,
+        usage: { prompt_tokens: 820, completion_tokens: 95, total_tokens: 915 },
+        steps: [
+          { node: 'retrieve', query: 'Why did Google login fail?', attempt: 0, decision: '1 citations', detail: null },
+          { node: 'grade_evidence', query: 'Why did Google login fail?', attempt: 0, decision: 'rewrite_or_stop', detail: 'Need a more specific query.' },
+          { node: 'rewrite_query', query: 'Google OAuth redirect URI mismatch', attempt: 1, decision: 'retry_retrieval', detail: null },
+          { node: 'generate_answer', query: 'Why did Google login fail?', attempt: 0, decision: '1 claims', detail: null },
+          { node: 'grade_answer', query: 'Why did Google login fail?', attempt: 0, decision: 'supported', detail: 'The citation directly supports the claim.' },
+        ],
+      },
+    } });
+    if (path.endsWith('/overview')) return route.fulfill({ json: { recent_issues: [] } });
+    if (path.endsWith('/cycle-settings')) return route.fulfill({ json: { enabled: false, duration_weeks: 2, upcoming_cycle_count: 3, next_cycle_starts_on: '', rollover_incomplete: true } });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Retrieval Lab' }).click();
+  await page.getByPlaceholder(/Ask about issues/).fill('Why did Google login fail?');
+  await page.getByRole('button', { name: 'Ask with citations' }).click();
+
+  await expect(page.getByText('The redirect URI did not match.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Agent run.*4 model calls.*915 tokens.*1 rewrite/ })).toBeVisible();
+  await page.getByRole('button', { name: /Agent run/ }).click();
+  await expect(page.getByText('Google OAuth redirect URI mismatch', { exact: true })).toBeVisible();
+  await expect(page.getByText('grade answer', { exact: true })).toBeVisible();
+  await expect(page.getByText('The citation directly supports the claim.')).toBeVisible();
+});
+
+
+test('Retrieval Lab clears the answering state and shows provider failures', async ({ page }) => {
+  await page.route('**/auth/refresh', (route) => route.fulfill({ json: { access_token: 'test-access-token' } }));
+  await page.route('**/auth/google/status', (route) => route.fulfill({ json: { configured: false } }));
+  await page.route('**/users/me', (route) => route.fulfill({ json: { id: 1, name: 'Retrieval Tester', email: 'tester@example.com' } }));
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/workspaces') return route.fulfill({ json: [{ id: 'workspace-1', name: 'Demo', my_role: 'owner' }] });
+    if (path === '/api/v1/workspaces/workspace-1/teams') return route.fulfill({ json: [{ id: 'team-1', name: 'Core', issue_prefix: 'CORE', my_role: 'lead' }] });
+    if (path.endsWith('/retrieval/answer')) return route.fulfill({ status: 503, json: { detail: 'Grounded answer generation is unavailable' } });
+    if (path.endsWith('/overview')) return route.fulfill({ json: { recent_issues: [] } });
+    if (path.endsWith('/cycle-settings')) return route.fulfill({ json: { enabled: false, duration_weeks: 2, upcoming_cycle_count: 3, next_cycle_starts_on: '', rollover_incomplete: true } });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Retrieval Lab' }).click();
+  await page.getByPlaceholder(/Ask about issues/).fill('Why did Google login fail?');
+  await page.getByRole('button', { name: 'Ask with citations' }).click();
+
+  await expect(page.getByRole('alert')).toContainText('Grounded answer generation is unavailable');
+  await expect(page.getByRole('button', { name: 'Ask with citations' })).toBeEnabled();
+  await expect(page.getByText('Retrieving and grading evidence…')).toHaveCount(0);
+});

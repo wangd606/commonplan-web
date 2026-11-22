@@ -1,4 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+
+const RAG_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_RAG_REQUEST_TIMEOUT_MS || 420000);
 
 const EXAMPLES = [
   'Why did Google login fail?',
@@ -51,11 +53,30 @@ function GroundedAnswer({ response }) {
       : response.generation.insufficient_evidence
         ? <p className="grounded-empty">No authorized evidence was sufficient to produce an answer.</p>
       : <div className="grounded-claims">{response.claims.map((claim, index) => <p key={`${index}-${claim.text}`}><span>{claim.text}</span>{claim.citation_ids.map((id) => <button type="button" key={id} title={citationById.get(id)?.target || id} onClick={() => setShowSources(true)}>[{id}]</button>)}</p>)}</div>}
+    {response.agent && <AgentRun agent={response.agent} originalQuery={response.query} />}
     {!!response.citations.length && <div className="grounded-sources">
       <button type="button" onClick={() => setShowSources(!showSources)} aria-expanded={showSources}><span>{evidenceOnly ? 'Retrieved sources' : 'Sources used'}</span><b>{response.citations.length}</b><small>{showSources ? 'Hide evidence' : 'Inspect citations'}</small></button>
       {showSources && <div>{response.citations.map((citation) => <article key={citation.id}><header><b>{citation.id}</b><strong>{citation.target}</strong><span>{citation.source_type}</span></header><p>{citation.excerpt}</p></article>)}</div>}
     </div>}
   </article>;
+}
+
+function AgentRun({ agent, originalQuery }) {
+  const [expanded, setExpanded] = useState(false);
+  const rewritten = agent.final_query && agent.final_query !== originalQuery;
+  return <div className="agent-run">
+    <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+      <span><i />Agent run</span>
+      <div><b>{agent.model_calls} model calls</b><b>{agent.usage.total_tokens} tokens</b>{agent.rewrites > 0 && <b>{agent.rewrites} rewrite</b>}{agent.answer_retries > 0 && <b>{agent.answer_retries} retry</b>}</div>
+      <small>{expanded ? 'Hide trace' : 'Inspect trace'}</small>
+    </button>
+    {expanded && <div className="agent-run-detail">
+      {rewritten && <p><span>Final retrieval query</span><strong>{agent.final_query}</strong></p>}
+      <ol>{agent.steps.map((step, index) => <li key={`${index}-${step.node}`}>
+        <i>{index + 1}</i><div><strong>{step.node.replaceAll('_', ' ')}</strong><span>{step.decision}</span>{step.detail && <small>{step.detail}</small>}</div>
+      </li>)}</ol>
+    </div>}
+  </div>;
 }
 
 export default function RetrievalLab({ request, workspaceId, teams, onStatus }) {
@@ -67,6 +88,20 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
   const [result, setResult] = useState(null);
   const [answer, setAnswer] = useState(null);
   const [loadingAction, setLoadingAction] = useState('');
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [requestError, setRequestError] = useState('');
+
+  useEffect(() => {
+    if (!loadingAction) {
+      setElapsedSeconds(0);
+      return undefined;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [loadingAction]);
 
   const rows = useMemo(() => {
     if (!result) return [];
@@ -85,12 +120,13 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
     event?.preventDefault();
     if (!query.trim()) return;
     setLoadingAction(mode);
+    setRequestError('');
     onStatus('');
     try {
       const endpoint = mode === 'answer' ? 'answer' : 'hybrid-search';
       const payload = await request(`/api/v1/workspaces/${workspaceId}/retrieval/${endpoint}`, {
         method: 'POST',
-        timeoutMs: 120000,
+        timeoutMs: mode === 'answer' ? RAG_REQUEST_TIMEOUT_MS : 120000,
         body: JSON.stringify({
           query: query.trim(),
           team_ids: selectedTeams.length ? selectedTeams : null,
@@ -105,23 +141,34 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
       setAnswer(mode === 'answer' ? payload : null);
       setChannel('fused');
     } catch (error) {
-      onStatus(error.message);
+      const message = error.message || 'The retrieval request failed.';
+      setRequestError(message);
+      onStatus(message);
     } finally {
       setLoadingAction('');
     }
   }
 
   const timing = result?.pipeline?.timings_ms || {};
+  const answerButtonLabel = loadingAction === 'answer'
+    ? (elapsedSeconds >= 10 ? `Starting model… ${elapsedSeconds}s` : 'Answering…')
+    : 'Ask with citations';
   return <section className="retrieval-lab">
     <div className="retrieval-hero">
-      <div><span className="eyebrow">KNOWLEDGE · R3</span><h2>Retrieval Lab</h2><p>Ask a question, inspect the evidence, and verify every grounded claim.</p></div>
-      <div className="retrieval-stage"><span>01 Retrieve</span><i /><span>02 Fuse</span><i /><span>03 Expand</span><i /><span>04 Rerank</span><i /><span>05 Cite</span></div>
+      <div><span className="eyebrow">KNOWLEDGE · R4</span><h2>Retrieval Lab</h2><p>Ask a question, inspect the evidence, and verify every grounded claim.</p></div>
+      <div className="retrieval-stage"><span>01 Retrieve</span><i /><span>02 Grade</span><i /><span>03 Rewrite</span><i /><span>04 Generate</span><i /><span>05 Verify</span></div>
     </div>
 
     <form className="retrieval-query" onSubmit={(event) => run(event, 'answer')}>
-      <div className="retrieval-query-box"><span aria-hidden="true">⌕</span><textarea value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ask about issues, projects, comments, or uploaded documents…" rows="2" /><div className="retrieval-actions"><button type="button" className="secondary" disabled={!!loadingAction || !query.trim()} onClick={(event) => run(event, 'retrieve')}>{loadingAction === 'retrieve' ? 'Retrieving…' : 'Inspect retrieval'}</button><button className="primary" disabled={!!loadingAction || !query.trim()}>{loadingAction === 'answer' ? 'Answering…' : 'Ask with citations'}</button></div></div>
+      <div className="retrieval-query-box"><span aria-hidden="true">⌕</span><textarea value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ask about issues, projects, comments, or uploaded documents…" rows="2" /><div className="retrieval-actions"><button type="button" className="secondary" disabled={!!loadingAction || !query.trim()} onClick={(event) => run(event, 'retrieve')}>{loadingAction === 'retrieve' ? 'Retrieving…' : 'Inspect retrieval'}</button><button className="primary" disabled={!!loadingAction || !query.trim()}>{answerButtonLabel}</button></div></div>
       <div className="retrieval-examples"><span>Try</span>{EXAMPLES.map((example) => <button type="button" key={example} onClick={() => setQuery(example)}>{example}</button>)}</div>
     </form>
+
+    {loadingAction === 'answer' && <div className="retrieval-request-state" role="status" aria-live="polite">
+      <span className="spinner" aria-hidden="true" />
+      <div><strong>{elapsedSeconds < 10 ? 'Retrieving and grading evidence…' : 'Starting the generation model…'}</strong><small>{elapsedSeconds < 10 ? 'Searching only the workspace and teams you can access.' : `A scale-to-zero cold start can take several minutes. ${elapsedSeconds}s elapsed.`}</small></div>
+    </div>}
+    {requestError && <div className="retrieval-request-error" role="alert"><strong>Answer request failed</strong><span>{requestError}</span></div>}
 
     <div className="retrieval-controls">
       <div><span>Team scope</span><div className="retrieval-team-chips"><button type="button" className={!selectedTeams.length ? 'selected' : ''} onClick={() => setSelectedTeams([])}>All I can access</button>{teams.map((team) => <button type="button" key={team.id} className={selectedTeams.includes(team.id) ? 'selected' : ''} onClick={() => toggleTeam(team.id)}>{team.issue_prefix}</button>)}</div></div>
