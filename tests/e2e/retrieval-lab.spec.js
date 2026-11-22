@@ -95,3 +95,28 @@ test('Retrieval Lab exposes the bounded R4 agent trace', async ({ page }) => {
   await expect(page.getByText('grade answer', { exact: true })).toBeVisible();
   await expect(page.getByText('The citation directly supports the claim.')).toBeVisible();
 });
+
+
+test('Retrieval Lab clears the answering state and shows provider failures', async ({ page }) => {
+  await page.route('**/auth/refresh', (route) => route.fulfill({ json: { access_token: 'test-access-token' } }));
+  await page.route('**/auth/google/status', (route) => route.fulfill({ json: { configured: false } }));
+  await page.route('**/users/me', (route) => route.fulfill({ json: { id: 1, name: 'Retrieval Tester', email: 'tester@example.com' } }));
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/workspaces') return route.fulfill({ json: [{ id: 'workspace-1', name: 'Demo', my_role: 'owner' }] });
+    if (path === '/api/v1/workspaces/workspace-1/teams') return route.fulfill({ json: [{ id: 'team-1', name: 'Core', issue_prefix: 'CORE', my_role: 'lead' }] });
+    if (path.endsWith('/retrieval/answer')) return route.fulfill({ status: 503, json: { detail: 'Grounded answer generation is unavailable' } });
+    if (path.endsWith('/overview')) return route.fulfill({ json: { recent_issues: [] } });
+    if (path.endsWith('/cycle-settings')) return route.fulfill({ json: { enabled: false, duration_weeks: 2, upcoming_cycle_count: 3, next_cycle_starts_on: '', rollover_incomplete: true } });
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Retrieval Lab' }).click();
+  await page.getByPlaceholder(/Ask about issues/).fill('Why did Google login fail?');
+  await page.getByRole('button', { name: 'Ask with citations' }).click();
+
+  await expect(page.getByRole('alert')).toContainText('Grounded answer generation is unavailable');
+  await expect(page.getByRole('button', { name: 'Ask with citations' })).toBeEnabled();
+  await expect(page.getByText('Retrieving and grading evidence…')).toHaveCount(0);
+});
