@@ -35,7 +35,7 @@ test('Retrieval Lab labels no-model output as evidence instead of an answer', as
 
   await page.goto('/');
   await page.getByRole('button', { name: 'Retrieval Lab' }).click();
-  await expect(page.getByRole('heading', { name: 'Retrieval Lab', level: 2 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Ask CommonPlan', level: 2 })).toBeVisible();
   await page.getByPlaceholder(/Ask about issues/).fill('Why did Google login fail?');
   await page.getByRole('button', { name: 'Ask with citations' }).click();
 
@@ -51,7 +51,7 @@ test('Retrieval Lab labels no-model output as evidence instead of an answer', as
 });
 
 
-test('Retrieval Lab exposes the bounded R4 agent trace', async ({ page }) => {
+test('Retrieval Lab replays the completed R5 agent workflow', async ({ page }) => {
   await page.route('**/auth/refresh', (route) => route.fulfill({ json: { access_token: 'test-access-token' } }));
   await page.route('**/auth/google/status', (route) => route.fulfill({ json: { configured: false } }));
   await page.route('**/users/me', (route) => route.fulfill({ json: { id: 1, name: 'Retrieval Tester', email: 'tester@example.com' } }));
@@ -60,21 +60,25 @@ test('Retrieval Lab exposes the bounded R4 agent trace', async ({ page }) => {
     if (path === '/api/v1/workspaces') return route.fulfill({ json: [{ id: 'workspace-1', name: 'Demo', my_role: 'owner' }] });
     if (path === '/api/v1/workspaces/workspace-1/teams') return route.fulfill({ json: [{ id: 'team-1', name: 'Core', issue_prefix: 'CORE', my_role: 'lead' }] });
     if (path.endsWith('/retrieval/answer')) return route.fulfill({ json: {
-      query: 'Why did Google login fail?',
+      query: 'Why did Google login fail, and how was it fixed?',
       answer: 'The redirect URI did not match. [S1]',
       claims: [{ text: 'The redirect URI did not match.', citation_ids: ['S1'] }],
       citations: [{ id: 'S1', target: 'issue:issue-1', source_id: 'issue-1', source_type: 'issue', excerpt: 'Google login callback failed because the redirect URI did not match.', heading_path: null, page_from: null, page_to: null }],
       generation: { provider: 'model_gateway', model: 'commonplan-generation-v1', status: 'answered', grounding_status: 'agent_validated', grounded: true, insufficient_evidence: false, timings_ms: { retrieval: 70, generation: 310, total: 380 } },
       retrieval,
       agent: {
-        strategy: 'bounded-langgraph-v1', final_query: 'Google OAuth redirect URI mismatch', rewrites: 1, answer_retries: 0, model_calls: 4,
+        strategy: 'agentic-answer-langgraph-v3', final_query: 'Google OAuth redirect URI mismatch | Google OAuth callback fix', rewrites: 1, answer_retries: 0, model_calls: 7,
         usage: { prompt_tokens: 820, completion_tokens: 95, total_tokens: 915 },
         steps: [
-          { node: 'retrieve', query: 'Why did Google login fail?', attempt: 0, decision: '1 citations', detail: null },
-          { node: 'grade_evidence', query: 'Why did Google login fail?', attempt: 0, decision: 'rewrite_or_stop', detail: 'Need a more specific query.' },
-          { node: 'rewrite_query', query: 'Google OAuth redirect URI mismatch', attempt: 1, decision: 'retry_retrieval', detail: null },
-          { node: 'generate_answer', query: 'Why did Google login fail?', attempt: 0, decision: '1 claims', detail: null },
-          { node: 'grade_answer', query: 'Why did Google login fail?', attempt: 0, decision: 'supported', detail: 'The citation directly supports the claim.' },
+          { node: 'plan_query', query: 'Google OAuth redirect URI mismatch | Google OAuth callback fix', attempt: 0, decision: '2 queries via internal_knowledge', detail: 'The question asks for cause and remediation.' },
+          { node: 'execute_tools', query: 'Google OAuth redirect URI mismatch | Google OAuth callback fix', attempt: 0, decision: '2 tool calls', detail: null },
+          { node: 'lexical_retrieve', query: 'Google OAuth redirect URI mismatch', attempt: 0, decision: '4 candidates', detail: null },
+          { node: 'vector_retrieve', query: 'Google OAuth redirect URI mismatch', attempt: 0, decision: '6 candidates', detail: null },
+          { node: 'merge_evidence', query: 'Why did Google login fail, and how was it fixed?', attempt: 0, decision: '5 unique candidates', detail: null },
+          { node: 'rerank_evidence', query: 'Why did Google login fail, and how was it fixed?', attempt: 0, decision: '3 model-ranked citations', detail: null },
+          { node: 'grade_evidence', query: 'Why did Google login fail, and how was it fixed?', attempt: 0, decision: 'sufficient', detail: 'Cause and remediation are supported.' },
+          { node: 'generate_answer', query: 'Why did Google login fail, and how was it fixed?', attempt: 0, decision: '1 claims', detail: null },
+          { node: 'grade_answer', query: 'Why did Google login fail, and how was it fixed?', attempt: 0, decision: 'supported', detail: 'The citation directly supports the claim.' },
         ],
       },
     } });
@@ -85,15 +89,18 @@ test('Retrieval Lab exposes the bounded R4 agent trace', async ({ page }) => {
 
   await page.goto('/');
   await page.getByRole('button', { name: 'Retrieval Lab' }).click();
-  await page.getByPlaceholder(/Ask about issues/).fill('Why did Google login fail?');
+  await page.getByPlaceholder(/Ask about issues/).fill('Why did Google login fail, and how was it fixed?');
   await page.getByRole('button', { name: 'Ask with citations' }).click();
 
   await expect(page.getByText('The redirect URI did not match.', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Agent run.*4 model calls.*915 tokens.*1 rewrite/ })).toBeVisible();
-  await page.getByRole('button', { name: /Agent run/ }).click();
+  await expect(page.getByRole('button', { name: /How this answer was built.*7 model calls.*915 tokens.*1 replan/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /Understand.*2 search queries/ })).toBeVisible();
   await expect(page.getByText('Google OAuth redirect URI mismatch', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: /Verify answer/ }).click();
   await expect(page.getByText('grade answer', { exact: true })).toBeVisible();
   await expect(page.getByText('The citation directly supports the claim.')).toBeVisible();
+  await page.getByRole('button', { name: 'Show developer trace' }).click();
+  await expect(page.locator('.agent-raw-trace')).toContainText('rerank evidence');
 });
 
 
