@@ -187,6 +187,34 @@
 .agent-run > button b { padding: 3px 6px; border-radius: 999px; color: #747681; background: #f0f0f5; font-size: 7px; font-weight: 700; }
 .agent-run > button small { color: #9698a3; font-size: 8px; }
 .agent-run-detail { display: grid; gap: 10px; padding: 0 21px 15px; }
+.agent-journey { gap: 12px; }
+.agent-stage-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.agent-stage-tabs > button { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 9px; border: 1px solid #e5e5ef; border-radius: 10px; color: #70727d; background: white; text-align: left; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.agent-stage-tabs > button:hover { border-color: #c8c7e7; transform: translateY(-1px); }
+.agent-stage-tabs > button.selected { border-color: #aaa8e9; background: #f8f8ff; box-shadow: 0 5px 14px rgba(67, 64, 152, .09); }
+.agent-stage-tabs > button > i { flex: 0 0 auto; display: grid; place-items: center; width: 23px; height: 23px; border-radius: 7px; color: #8b8d99; background: #f1f1f5; font-size: 8px; font-style: normal; font-weight: 780; }
+.agent-stage-tabs > button > i.completed { color: #fff; background: #6864d8; }
+.agent-stage-tabs > button > span { min-width: 0; display: grid; gap: 2px; }
+.agent-stage-tabs strong { overflow: hidden; color: #4b4c58; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-stage-tabs small { overflow: hidden; color: #92949f; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-stage-detail { display: grid; gap: 9px; min-height: 116px; padding: 12px; border: 1px solid #e3e2ee; border-radius: 11px; background: linear-gradient(145deg, #fff, #fbfbff); }
+.agent-stage-detail > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-stage-detail > header > div { display: grid; gap: 2px; }
+.agent-stage-detail > header span { color: #999aa5; font-size: 7px; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
+.agent-stage-detail > header strong { color: #3f404a; font-size: 11px; }
+.agent-stage-detail > header > b { padding: 3px 6px; border-radius: 999px; color: #6662cb; background: #efefff; font-size: 7px; }
+.agent-stage-detail ol, .agent-raw-trace { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 7px; margin: 0; padding: 0; list-style: none; }
+.agent-plan { display: grid; gap: 7px; }
+.agent-plan > span { color: #6a67d2; font-size: 8px; font-weight: 760; }
+.agent-plan > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.agent-plan code { padding: 6px 8px; border: 1px solid #e3e2f0; border-radius: 7px; color: #4d4e59; background: #fff; font: 8px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.agent-plan > small { color: #8b8d98; font-size: 7px; line-height: 1.45; }
+.agent-trace-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-trace-footer > p { min-width: 0; display: grid; gap: 2px; margin: 0; }
+.agent-trace-footer > p span { color: #999aa5; font-size: 7px; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
+.agent-trace-footer > p strong { overflow: hidden; color: #5b5d68; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-trace-footer > button { flex: 0 0 auto; padding: 5px 8px; border: 1px solid #dfdeec; border-radius: 7px; color: #6966c6; background: white; font-size: 7px; font-weight: 720; }
+.agent-raw-trace { padding-top: 10px; border-top: 1px dashed #dedde8; }
 .agent-run-detail > p { display: grid; gap: 3px; margin: 0; padding: 8px 10px; border: 1px solid #e6e5f2; border-radius: 8px; background: white; }
 .agent-run-detail > p span { color: #9798a3; font-size: 7px; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
 .agent-run-detail > p strong { color: #51525e; font-size: 9px; font-weight: 600; }
@@ -262,6 +290,9 @@
   .retrieval-profile { grid-column: 1 / -1; }
   .retrieval-query-box { grid-template-columns: 27px minmax(0, 1fr); }
   .retrieval-actions { grid-column: 2; justify-content: flex-end; }
+  .agent-stage-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agent-run > button { grid-template-columns: 1fr auto; }
+  .agent-run > button > div { grid-column: 1 / -1; }
 }
 
 * { box-sizing: border-box; }

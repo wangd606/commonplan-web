@@ -3,10 +3,39 @@ import React, { useEffect, useMemo, useState } from 'react';
 const RAG_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_RAG_REQUEST_TIMEOUT_MS || 420000);
 
 const EXAMPLES = [
-  'Why did Google login fail?',
+  'Why did Google login fail, and how was it fixed?',
   'Which issues are blocked by another issue?',
   '登录回调失败的原因是什么？',
 ];
+
+const AGENT_STAGES = [
+  { id: 'plan', label: 'Understand', icon: '01', nodes: ['plan_query'] },
+  { id: 'search', label: 'Search knowledge', icon: '02', nodes: ['execute_tools', 'lexical_retrieve', 'embed_query', 'vector_retrieve', 'fuse_rrf', 'expand_context', 'rerank_results'] },
+  { id: 'evidence', label: 'Select evidence', icon: '03', nodes: ['merge_evidence', 'rerank_evidence', 'grade_evidence'] },
+  { id: 'answer', label: 'Compose answer', icon: '04', nodes: ['generate_answer'] },
+  { id: 'verify', label: 'Verify answer', icon: '05', nodes: ['grade_answer', 'insufficient'] },
+];
+
+function stageSummary(stage, steps) {
+  const matching = steps.filter((step) => stage.nodes.includes(step.node));
+  if (!matching.length) return 'Not needed';
+  if (stage.id === 'plan') {
+    const queryCount = matching.at(-1)?.query?.split(' | ').filter(Boolean).length || 1;
+    return `${queryCount} search ${queryCount === 1 ? 'query' : 'queries'}`;
+  }
+  if (stage.id === 'search') {
+    const calls = steps.filter((step) => step.node === 'execute_tools').reduce((total, step) => total + (Number.parseInt(step.decision, 10) || 0), 0);
+    return `${calls || 1} internal knowledge ${calls === 1 ? 'search' : 'searches'}`;
+  }
+  if (stage.id === 'evidence') {
+    return matching.findLast((step) => step.node === 'grade_evidence')?.decision === 'sufficient'
+      ? 'Evidence sufficient'
+      : matching.at(-1)?.decision || 'Evidence reviewed';
+  }
+  if (stage.id === 'answer') return `${matching.length} generation ${matching.length === 1 ? 'attempt' : 'attempts'}`;
+  const outcome = matching.at(-1)?.decision;
+  return outcome === 'supported' ? 'Grounding verified' : outcome === 'refuse' ? 'Insufficient evidence' : outcome?.replaceAll('_', ' ') || 'Checked';
+}
 
 function score(value) {
   if (value == null) return '—';
@@ -62,19 +91,50 @@ function GroundedAnswer({ response }) {
 }
 
 function AgentRun({ agent, originalQuery }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const [selectedStage, setSelectedStage] = useState('plan');
+  const [showRawTrace, setShowRawTrace] = useState(false);
   const rewritten = agent.final_query && agent.final_query !== originalQuery;
+  const plans = agent.steps.filter((step) => step.node === 'plan_query');
+  const selected = AGENT_STAGES.find((stage) => stage.id === selectedStage) || AGENT_STAGES[0];
+  const selectedSteps = agent.steps.filter((step) => selected.nodes.includes(step.node));
   return <div className="agent-run">
     <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
-      <span><i />Agent run</span>
-      <div><b>{agent.model_calls} model calls</b><b>{agent.usage.total_tokens} tokens</b>{agent.rewrites > 0 && <b>{agent.rewrites} rewrite</b>}{agent.answer_retries > 0 && <b>{agent.answer_retries} retry</b>}</div>
-      <small>{expanded ? 'Hide trace' : 'Inspect trace'}</small>
+      <span><i />How this answer was built</span>
+      <div><b>{agent.model_calls} model calls</b><b>{agent.usage.total_tokens} tokens</b>{agent.rewrites > 0 && <b>{agent.rewrites} replan</b>}{agent.answer_retries > 0 && <b>{agent.answer_retries} answer retry</b>}</div>
+      <small>{expanded ? 'Hide activity' : 'Show activity'}</small>
     </button>
-    {expanded && <div className="agent-run-detail">
-      {rewritten && <p><span>Final retrieval query</span><strong>{agent.final_query}</strong></p>}
-      <ol>{agent.steps.map((step, index) => <li key={`${index}-${step.node}`}>
+    {expanded && <div className="agent-run-detail agent-journey">
+      <div className="agent-stage-tabs" role="tablist" aria-label="Agent activity stages">
+        {AGENT_STAGES.map((stage) => {
+          const active = stage.id === selectedStage;
+          const completed = agent.steps.some((step) => stage.nodes.includes(step.node));
+          return <button type="button" role="tab" aria-selected={active} className={active ? 'selected' : ''} key={stage.id} onClick={() => setSelectedStage(stage.id)}>
+            <i className={completed ? 'completed' : ''}>{completed ? '✓' : stage.icon}</i>
+            <span><strong>{stage.label}</strong><small>{stageSummary(stage, agent.steps)}</small></span>
+          </button>;
+        })}
+      </div>
+
+      <section className="agent-stage-detail">
+        <header><div><span>Selected stage</span><strong>{selected.label}</strong></div><b>{selectedSteps.length} event{selectedSteps.length === 1 ? '' : 's'}</b></header>
+        {selected.id === 'plan' && plans.map((plan, index) => <div className="agent-plan" key={`${index}-${plan.query}`}>
+          <span>{plans.length > 1 ? `Plan ${index + 1}` : 'Search plan'}</span>
+          <div>{plan.query.split(' | ').filter(Boolean).map((item) => <code key={item}>{item}</code>)}</div>
+          <small>{plan.decision}{plan.detail ? ` · ${plan.detail}` : ''}</small>
+        </div>)}
+        {selected.id !== 'plan' && <ol>{selectedSteps.map((step, index) => <li key={`${index}-${step.node}-${step.attempt}`}>
+          <i>{index + 1}</i><div><strong>{step.node.replaceAll('_', ' ')}</strong><span>{step.decision}</span>{step.detail && <small>{step.detail}</small>}</div>
+        </li>)}</ol>}
+      </section>
+
+      <div className="agent-trace-footer">
+        {rewritten && <p><span>Final retrieval plan</span><strong>{agent.final_query}</strong></p>}
+        <button type="button" onClick={() => setShowRawTrace(!showRawTrace)}>{showRawTrace ? 'Hide developer trace' : 'Show developer trace'}</button>
+      </div>
+      {showRawTrace && <ol className="agent-raw-trace">{agent.steps.map((step, index) => <li key={`${index}-${step.node}`}>
         <i>{index + 1}</i><div><strong>{step.node.replaceAll('_', ' ')}</strong><span>{step.decision}</span>{step.detail && <small>{step.detail}</small>}</div>
-      </li>)}</ol>
+      </li>)}</ol>}
     </div>}
   </div>;
 }
@@ -155,8 +215,8 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
     : 'Ask with citations';
   return <section className="retrieval-lab">
     <div className="retrieval-hero">
-      <div><span className="eyebrow">KNOWLEDGE · R4</span><h2>Retrieval Lab</h2><p>Ask a question, inspect the evidence, and verify every grounded claim.</p></div>
-      <div className="retrieval-stage"><span>01 Retrieve</span><i /><span>02 Grade</span><i /><span>03 Rewrite</span><i /><span>04 Generate</span><i /><span>05 Verify</span></div>
+      <div><span className="eyebrow">KNOWLEDGE · R5</span><h2>Ask CommonPlan</h2><p>Ask a question, follow the agent's completed workflow, and verify every grounded claim.</p></div>
+      <div className="retrieval-stage"><span>01 Plan</span><i /><span>02 Search</span><i /><span>03 Rerank</span><i /><span>04 Answer</span><i /><span>05 Verify</span></div>
     </div>
 
     <form className="retrieval-query" onSubmit={(event) => run(event, 'answer')}>
@@ -166,7 +226,7 @@ export default function RetrievalLab({ request, workspaceId, teams, onStatus }) 
 
     {loadingAction === 'answer' && <div className="retrieval-request-state" role="status" aria-live="polite">
       <span className="spinner" aria-hidden="true" />
-      <div><strong>{elapsedSeconds < 10 ? 'Retrieving and grading evidence…' : 'Starting the generation model…'}</strong><small>{elapsedSeconds < 10 ? 'Searching only the workspace and teams you can access.' : `A scale-to-zero cold start can take several minutes. ${elapsedSeconds}s elapsed.`}</small></div>
+      <div><strong>{elapsedSeconds < 10 ? 'Planning and searching your knowledge…' : 'The agent is building and checking the answer…'}</strong><small>{elapsedSeconds < 10 ? 'Only workspace and team knowledge you can access will be searched.' : `This first version replays detailed activity after completion. A cold model may take several minutes. ${elapsedSeconds}s elapsed.`}</small></div>
     </div>}
     {requestError && <div className="retrieval-request-error" role="alert"><strong>Answer request failed</strong><span>{requestError}</span></div>}
 
